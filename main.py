@@ -20,11 +20,19 @@ def cli():
 @click.argument('img_b_path', type=click.Path())
 @click.option('--save_gif', default=None, type=click.Path())
 def align(img_a_path, img_b_path, save_gif):
+    """
+    Entry point for the image registration demo.
+    Uses a coarse-to-fine approach for aligning the images. This consists of
+    running the alignment algorithm multiple times; initially with the images in
+    lower resolutions and blurred, with the amount of blur decreasing as the
+    alignment .
+    """
     warper = Homography()
 
     blur_levels = [3, 2, 1, 0.5]
     iterations = [600, 300, 100, 10]
-    learning_rates = [1e-3, 1e-3, 1e-3, 1e-5]
+    optimizers = [tf.optimizers.Adam(1e-3), tf.optimizers.Adam(1e-3),
+                  tf.optimizers.Adam(1e-3), tf.optimizers.Adam(1e-5)]
     image_sizes = [256, 256, 256, 512]
 
     if save_gif is None:
@@ -35,6 +43,7 @@ def align(img_a_path, img_b_path, save_gif):
     red_i: np.ndarray
     blue_i: np.ndarray
 
+    # Will be called after every alignment iteration
     def update_plot(target, transformed, transform_mask):
         plotter.update(
             transform_mask * (transformed * 0.7 * red_i +
@@ -42,8 +51,9 @@ def align(img_a_path, img_b_path, save_gif):
             (1-transform_mask) * target * blue_i
         )
 
-    for blur_level, lr, its, size in zip(
-            blur_levels, learning_rates, iterations, image_sizes):
+    # Iterate in coarse-to-fine representations of the images
+    for blur_level, optimizer, its, size in zip(
+            blur_levels, optimizers, iterations, image_sizes):
         img_a = load_img(img_a_path, blur_level, size)
         img_b = load_img(img_b_path, blur_level, size)
 
@@ -55,8 +65,9 @@ def align(img_a_path, img_b_path, save_gif):
 
         image_registration.align_to(
             img_b, img_a, warper, iterations=its, callbacks=[update_plot],
-            learning_rate=lr)
+            optimizer=optimizer)
 
+    # We are done!
     plotter.finalize()
 
     print(f'Computed transform parameters:\n{warper.variables[0]}')

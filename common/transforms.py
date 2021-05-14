@@ -3,6 +3,9 @@ import numpy as np
 
 
 class Affine(tf.Module):
+    """
+    Affine coordinate transform
+    """
     def __init__(self, name=None):
         super(Affine, self).__init__(name=name)
         self.w = tf.Variable(np.eye(2, 3, dtype=np.float32))
@@ -21,6 +24,9 @@ class Affine(tf.Module):
 
 
 class Homography(tf.Module):
+    """
+    Homography coordinate transform
+    """
     def __init__(self, name=None):
         super(Homography, self).__init__(name=name)
         self.w = tf.Variable(np.eye(3, dtype=np.float32))

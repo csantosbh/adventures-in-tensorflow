@@ -1,36 +1,51 @@
+from typing import Tuple
+
 import tensorflow as tf
 import numpy as np
 
 
 class BilinearSampler(tf.Module):
+    """
+    Differentiable bilinear image sampler
+    """
     def __init__(self, img: np.ndarray, name=None):
         super(BilinearSampler, self).__init__(name=name)
 
         tf.assert_rank(img, 3)
         self.img = tf.constant(img)
-        channel_pad = [] if img.ndim == 2 else [[0, 0]]
 
         self.width = tf.cast(tf.shape(img)[1], tf.float32)
         self.height = tf.cast(tf.shape(img)[0], tf.float32)
 
+        # Adjust the gradients, since we work with normalized coordinates
         delta_x = 1 / (self.width - 1)
         delta_y = 1 / (self.height - 1)
 
         self.dx = np.pad(
             (self.img[:, 1:] - self.img[:, :-1]),
-            [[0, 0], [0, 1]] + channel_pad,
+            [[0, 0], [0, 1], [0, 0]],
             mode='constant'
         ) / delta_x
         self.dy = np.pad(
             (self.img[1:, :] - self.img[:-1, :]),
-            [[0, 1], [0, 0]] + channel_pad,
+            [[0, 1], [0, 0], [0, 0]],
             mode='constant'
         ) / delta_y
 
         self.ones = tf.ones_like(img)
         self.zeroes = tf.zeros_like(img)
 
-    def get_xy(self):
+    def get_xy(self) -> Tuple[tf.Tensor, tf.Tensor]:
+        """
+        Return the x and y coordinates that can be used for sampling the image.
+        These coordinates can also be transformed (see `common.transforms`).
+
+        Note that we use normalized coordinates (i.e. they are remapped to the
+        range [0, 1]). This presents some benefits, such as invariance to the
+        scale of the image being transformed.
+
+        :return: Normalized (xx, yy) coordinates
+        """
         # Generate image coordinates
         xx, yy = tf.meshgrid(tf.range(self.width, dtype=tf.float32),
                              tf.range(self.height, dtype=tf.float32))
@@ -40,6 +55,13 @@ class BilinearSampler(tf.Module):
         return xx, yy
 
     def get_mask(self, xx, yy):
+        """
+        Get mask of valid image coordinates
+        :param xx: Horizontal coordinates (see `get_xy`)
+        :param yy: Vertical coordinates (see `get_xy`)
+        :return: Mask with same shape as image object, where 1 indicate a valid
+                 pixel and 0, an invalid.
+        """
         mask = tf.where((xx >= 0) & (xx <= 1) &
                         (yy >= 0) & (yy <= 1), self.ones, self.zeroes)
         return mask
@@ -47,15 +69,22 @@ class BilinearSampler(tf.Module):
     @staticmethod
     def remap(img: tf.Tensor,
               xx: tf.Tensor,
-              yy: tf.Tensor,
-              clamp_borders=True) -> tf.Tensor:
+              yy: tf.Tensor) -> tf.Tensor:
+        """
+        Sample image at coordinates `xx` and `yy` using bilinear interpolation.
+
+        :param img: Image to be transformed. Must have the same shape as `xx`
+                    and `yy`.
+        :param xx: Horizontal coordinates (see `get_xy`)
+        :param yy: Vertical coordinates (see `get_xy`)
+        :return: Sampled image.
+        """
         height = tf.cast(tf.shape(img)[0], tf.float32)
         width = tf.cast(tf.shape(img)[1], tf.float32)
 
         # Clamp xx and yy
-        if clamp_borders:
-            xx = tf.clip_by_value(xx, 0, 1)
-            yy = tf.clip_by_value(yy, 0, 1)
+        xx = tf.clip_by_value(xx, 0, 1)
+        yy = tf.clip_by_value(yy, 0, 1)
 
         xx_zero_to_width = xx * (width - 1)
         yy_zero_to_height = yy * (height - 1)
@@ -93,10 +122,19 @@ class BilinearSampler(tf.Module):
 
     @tf.custom_gradient
     def __call__(self, xx: tf.Tensor, yy: tf.Tensor):
-
+        """
+        Core sampling and custom gradient for the image sampling operation
+        """
         def grad(upstream):
             """
-            dIdW = Ix*dx/dW + Iy*dy/dW
+            Gradient of the image sampling operation I(x, y).
+
+            When sampling via warped coordinates, I(w(x, p), w(y, p)),
+            the Jacobian of I with respect to p is given by
+
+            dI/dp = Ix*dx/dp + Iy*dy/dp,
+            where Ix and Iy are the partial derivatives of I w.r.t. x and y,
+            respectively.
             """
 
             result = (

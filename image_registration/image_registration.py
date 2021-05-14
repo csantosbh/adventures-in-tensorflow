@@ -7,14 +7,31 @@ from common.samplers import BilinearSampler
 from common.transforms import Homography
 
 
-def l2_loss(target: tf.Tensor,
-            transformed: tf.Tensor,
-            transform_mask: tf.Tensor):
+def mse_loss(target: tf.Tensor,
+             transformed: tf.Tensor,
+             transform_mask: tf.Tensor):
+    """
+    Here we implement the simple Mean Squared Error (MSE) metric. The mean is
+    computed for the valid pixels, determined by the `transform_mask`.
+
+    :param target: Reference image to which we want to align the `transformed`
+                   image
+    :param transformed: Image being modified with the goal of alignment to the
+                        `target` image
+    :param transform_mask: Mask indicating valid pixels of the `transformed`
+                           image.
+    :return: A scalar indicating how well the images are aligned. Lower is
+             better.
+    """
     masked_diff = transform_mask * (transformed - target)**2
     return tf.reduce_sum(masked_diff) / tf.reduce_sum(transform_mask)
 
 
 def adjust_shape_to(source: np.ndarray, destination: np.ndarray) -> np.ndarray:
+    """
+    Make the `source` image match the `destination` in size. Smaller dimensions
+    are padded; larger dimensions are clipped.
+    """
     # Enlarge smaller dimensions
     diff_height = max(0, destination.shape[0] - source.shape[0])
     diff_width = max(0, destination.shape[1] - source.shape[1])
@@ -51,16 +68,33 @@ def align_to(source: np.ndarray,
              destination: np.ndarray,
              warper: Union[tf.Module, Callable[[tf.Tensor, tf.Tensor], tf.Tensor]],
              iterations: int = 800,
-             learning_rate: float = 0.001,
              optimizer: tf.optimizers.Optimizer = None,
              loss_fn: Callable[[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor] = None,
              callbacks: List[Callable[[tf.Tensor, tf.Tensor, tf.Tensor], None]] = None,
              ) -> np.ndarray:
+    """
+    Aligns the image `source` to `destination` using the `warper` transform
+    (e.g. `common.transforms.Homography` or `common.transforms.Affine`).
+
+    This will update the parameters of `warper` and return the warped `source`
+    image.
+
+    :param source: Image to be warped
+    :param destination: Reference image for alignment
+    :param warper: Transform object (see `common.transoforms`).
+    :param iterations: Number of iterations
+    :param optimizer: Optimization algorithm
+    :param loss_fn: Loss function. For an example, see `mse_loss`.
+    :param callbacks: Functions to be called after each iteration. The
+                      parameters are the same as for `loss_fn`.
+    :return: Transformed image. Important: The `warper` will have its parameters
+             updated in-place!
+    """
     if optimizer is None:
-        optimizer = tf.optimizers.Adam(learning_rate=learning_rate)
+        optimizer = tf.optimizers.Adam(learning_rate=1e-3)
 
     if loss_fn is None:
-        loss_fn = l2_loss
+        loss_fn = mse_loss
 
     if callbacks is None:
         callbacks = []
@@ -92,6 +126,10 @@ def align_to(source: np.ndarray,
 
 
 def debug():
+    """
+    This function was created for comparing TensorFlow autodiff to numeric
+    differentiation of image sampling.
+    """
     img = np.expand_dims(np.mgrid[0:4, 0:4][0], 2).astype(np.float32)
     img = (img - np.min(img)) / (np.max(img) - np.min(img))
 

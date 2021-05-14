@@ -8,7 +8,10 @@ import numpy as np
 import cv2
 
 
-class IPlotter(object):
+class ISequencePlotter(object):
+    """
+    Common interface for our plotters of sequences of images
+    """
     def update(self, image, **kwargs):
         raise NotImplementedError()
 
@@ -16,7 +19,10 @@ class IPlotter(object):
         pass
 
 
-class InteractivePlotter(IPlotter):
+class InteractivePlotter(ISequencePlotter):
+    """
+    Plotter that allows updating the image dynamically
+    """
     def __init__(self):
         plt.ion()
         self.fig, self.ax = plt.subplots()
@@ -33,7 +39,10 @@ class InteractivePlotter(IPlotter):
         plt.show(block=True)
 
 
-class GifPlotter(IPlotter):
+class GifPlotter(ISequencePlotter):
+    """
+    Plotter that converts the sequence of provided images to a gif file
+    """
     def __init__(self, output_path):
         self.dst_dir = tempfile.TemporaryDirectory()
         self.output_path = output_path
@@ -55,4 +64,3 @@ class GifPlotter(IPlotter):
             self.output_path
         ])
         converter.wait()
-        os.system(f'cp -r {self.dst_dir.name} /tmp/xablau')
