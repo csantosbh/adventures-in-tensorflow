@@ -246,12 +246,13 @@ def align_to(source: np.ndarray,
              destination: np.ndarray,
              warper: Union[tf.Module, Callable[[tf.Tensor, tf.Tensor], tf.Tensor]],
              iterations: int = 800,
+             learning_rate: float = 0.001,
              optimizer: tf.optimizers.Optimizer = None,
              loss_fn: Callable[[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor] = None,
              callbacks: List[Callable[[tf.Tensor, tf.Tensor, tf.Tensor], None]] = None,
              ) -> np.ndarray:
     if optimizer is None:
-        optimizer = tf.optimizers.Adam(learning_rate=0.001)
+        optimizer = tf.optimizers.Adam(learning_rate=learning_rate)
 
     if loss_fn is None:
         loss_fn = l2_loss
@@ -324,7 +325,7 @@ def align(img_a_path, img_b_path, save_gif):
 
     blur_levels = [3, 2, 1, 0.5]
     iterations = [600, 300, 100, 10]
-    tgt_sizes = [256, 256, 256, 256]
+    learning_rates = [1e-3, 1e-3, 1e-3, 1e-5]
 
     if save_gif is None:
         plotter = InteractivePlotter()
@@ -341,9 +342,9 @@ def align(img_a_path, img_b_path, save_gif):
             (1-transform_mask) * target * blue_i
         )
 
-    for blur_level, tgt_size, its in zip(blur_levels, tgt_sizes, iterations):
-        img_a = load_img(img_a_path, blur_level, tgt_size)
-        img_b = load_img(img_b_path, blur_level, tgt_size)
+    for blur_level, lr, its in zip(blur_levels, learning_rates, iterations):
+        img_a = load_img(img_a_path, blur_level)
+        img_b = load_img(img_b_path, blur_level)
 
         height = img_a.shape[0]
         width = img_a.shape[1]
@@ -351,8 +352,8 @@ def align(img_a_path, img_b_path, save_gif):
         red_i = np.ones((height, width, 3)) * [[[1, 0.55, 0.55]]]
         blue_i = np.ones((height, width, 3)) * [[[0.55, 0.55, 1]]]
 
-        align_to(img_b, img_a,
-                 warper, iterations=its, callbacks=[update_plot])
+        align_to(img_b, img_a, warper, iterations=its, callbacks=[update_plot],
+                 learning_rate=lr)
 
     plotter.finalize()
 
