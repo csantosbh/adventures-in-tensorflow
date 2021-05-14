@@ -1,5 +1,8 @@
 #!/usr/bin/env python
-from typing import Callable
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Callable, Union, List
 
 import click
 import icecream
@@ -7,10 +10,6 @@ import cv2
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
-
-
-def configure_tensorflow():
-    pass
 
 
 class Affine(tf.Module):
@@ -49,8 +48,10 @@ class Homography(tf.Module):
         return xx, yy
 
 
-class ImageDistorter(tf.Module):
-    def __init__(self, img: np.ndarray):
+class BilinearSampler(tf.Module):
+    def __init__(self, img: np.ndarray, name=None):
+        super(BilinearSampler, self).__init__(name=name)
+
         tf.assert_rank(img, 3)
         self.img = tf.constant(img)
         channel_pad = [] if img.ndim == 2 else [[0, 0]]
@@ -58,8 +59,8 @@ class ImageDistorter(tf.Module):
         self.width = tf.cast(tf.shape(img)[1], tf.float32)
         self.height = tf.cast(tf.shape(img)[0], tf.float32)
 
-        delta_x = 1 / self.width
-        delta_y = 1 / self.height
+        delta_x = 1 / (self.width - 1)
+        delta_y = 1 / (self.height - 1)
 
         self.dx = np.pad(
             (self.img[:, 1:] - self.img[:, :-1]),
@@ -72,16 +73,22 @@ class ImageDistorter(tf.Module):
             mode='constant'
         ) / delta_y
 
-        self.dxdy = tf.concat([self.dx, self.dy], 2)
+        self.ones = tf.ones_like(img)
+        self.zeroes = tf.zeros_like(img)
 
     def get_xy(self):
         # Generate image coordinates
         xx, yy = tf.meshgrid(tf.range(self.width, dtype=tf.float32),
                              tf.range(self.height, dtype=tf.float32))
-        xx = tf.expand_dims(xx, 2) / self.width
-        yy = tf.expand_dims(yy, 2) / self.height
+        xx = tf.expand_dims(xx, 2) / (self.width - 1)
+        yy = tf.expand_dims(yy, 2) / (self.height - 1)
 
         return xx, yy
+
+    def get_mask(self, xx, yy):
+        mask = tf.where((xx >= 0) & (xx <= 1) &
+                        (yy >= 0) & (yy <= 1), self.ones, self.zeroes)
+        return mask
 
     @staticmethod
     def remap(img: tf.Tensor,
@@ -93,14 +100,11 @@ class ImageDistorter(tf.Module):
 
         # Clamp xx and yy
         if clamp_borders:
-            xx_max = tf.cast(tf.shape(img)[1], tf.float32) - 1
-            yy_max = tf.cast(tf.shape(img)[0], tf.float32) - 1
+            xx = tf.clip_by_value(xx, 0, 1)
+            yy = tf.clip_by_value(yy, 0, 1)
 
-            xx = tf.clip_by_value(xx, 0, xx_max / width)
-            yy = tf.clip_by_value(yy, 0, yy_max / height)
-
-        xx_zero_to_width = xx * width
-        yy_zero_to_height = yy * height
+        xx_zero_to_width = xx * (width - 1)
+        yy_zero_to_height = yy * (height - 1)
 
         # Compute base coordinates for bilinear interpolation
         xx0 = tf.math.floor(xx_zero_to_width)
@@ -138,22 +142,7 @@ class ImageDistorter(tf.Module):
 
         def grad(upstream):
             """
-            I(H(x,y)) = I((x*w00+y*w01+w02)/(x*w20+y*w21+w22),
-                          (x*w10+y*w11+w12)/(x*w20+y*w21+w22))
             dIdW = Ix*dx/dW + Iy*dy/dW
-            let D = 1/(x*w20+y*w21+w22)
-
-            dx/dw:
-            Lx = (x*w00+y*w01+w02)/(x*w20+y*w21+w22)**2
-            | D*x    D*y    D|
-            |   0      0    0|
-            |Lx*x   Lx*y   Lx|
-
-            dy/dw:
-            Ly = (x*w10+y*w11+w12)/(x*w20+y*w21+w22)**2
-            |   0      0    0|
-            | D*x    D*y    D|
-            |Ly*x   Ly*y   Ly|
             """
 
             result = (
@@ -165,97 +154,140 @@ class ImageDistorter(tf.Module):
         return self.remap(self.img, xx, yy), grad
 
 
-class InteractivePlotter(object):
+class IPlotter(object):
+    def update(self, image, **kwargs):
+        raise NotImplementedError()
+
+    def finalize(self):
+        pass
+
+
+class InteractivePlotter(IPlotter):
     def __init__(self):
         plt.ion()
         self.fig, self.ax = plt.subplots()
         self.axim = None
 
-    def update(self, image):
+    def update(self, image, **kwargs):
         if self.axim is None:
-            self.axim = self.ax.imshow(image)
+            self.axim = self.ax.imshow(image, cmap=kwargs.get('cmap', 'gray'))
         else:
             self.axim.set_data(image)
             self.fig.canvas.flush_events()
 
-    def hold(self):
+    def finalize(self):
         plt.show(block=True)
 
 
-def align_to(source: np.ndarray, destination: np.ndarray,
-             iterations: int = 200,
+class GifPlotter(IPlotter):
+    def __init__(self, output_path):
+        self.dst_dir = tempfile.TemporaryDirectory()
+        self.output_path = output_path
+        self.counter = 0
+
+    def update(self, image, **kwargs):
+        filename = Path(self.dst_dir.name) / f'frame_{self.counter:04d}.png'
+        image = np.clip(image * 255, 0, 255).astype(np.int)
+        cv2.imwrite(str(filename), image)
+        self.counter += 1
+
+    def finalize(self):
+        converter = subprocess.Popen([
+            'ffmpeg',
+            '-f', 'image2',
+            '-i', f'{self.dst_dir.name}/frame_%04d.png',
+            '-pix_fmt', 'rgb8',
+            self.output_path
+        ])
+        converter.wait()
+
+
+def l2_loss(target: tf.Tensor,
+            transformed: tf.Tensor,
+            transform_mask: tf.Tensor):
+    masked_diff = transform_mask * (transformed - target)**2
+    return tf.reduce_sum(masked_diff) / tf.reduce_sum(transform_mask)
+
+
+def adjust_shape_to(source: np.ndarray, destination: np.ndarray) -> np.ndarray:
+    # Enlarge smaller dimensions
+    diff_height = max(0, destination.shape[0] - source.shape[0])
+    diff_width = max(0, destination.shape[1] - source.shape[1])
+
+    y_before = int(diff_height // 2)
+    y_after = int(diff_height - y_before)
+
+    x_before = int(diff_width // 2)
+    x_after = int(diff_width - x_before)
+
+    channel_pad = [] if source.ndim == 2 else [[0, 0]]
+
+    source = np.pad(
+        source, [[y_before, y_after], [x_before, x_after]] + channel_pad,
+        mode='reflect'
+    )
+
+    # Reduce bigger dimensions
+    diff_height = max(0, source.shape[0] - destination.shape[0])
+    diff_width = max(0, source.shape[1] - destination.shape[1])
+
+    y_before = int(diff_height // 2)
+    y_after = int(diff_height - y_before) if y_before > 0 else -source.shape[0]
+
+    x_before = int(diff_width // 2)
+    x_after = int(diff_width - x_before) if x_before > 0 else -source.shape[1]
+
+    source = source[y_before:-y_after, x_before:-x_after, ...]
+
+    return source
+
+
+def align_to(source: np.ndarray,
+             destination: np.ndarray,
+             warper: Union[tf.Module, Callable[[tf.Tensor, tf.Tensor], tf.Tensor]],
+             iterations: int = 800,
              optimizer: tf.optimizers.Optimizer = None,
-             loss_fn: Callable[[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor] = None
+             loss_fn: Callable[[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor] = None,
+             callbacks: List[Callable[[tf.Tensor, tf.Tensor, tf.Tensor], None]] = None,
              ) -> np.ndarray:
     if optimizer is None:
-        optimizer = tf.optimizers.SGD(learning_rate=0.001)
+        optimizer = tf.optimizers.Adam(learning_rate=0.001)
 
     if loss_fn is None:
-        loss_fn = lambda target, transformed, transform_mask: \
-            tf.reduce_mean(transform_mask * (transformed - target)**2)
+        loss_fn = l2_loss
+
+    if callbacks is None:
+        callbacks = []
 
     if source.shape != destination.shape:
-        # Enlarge smaller dimensions
-        diff_height = max(0, destination.shape[0] - source.shape[0])
-        diff_width = max(0, destination.shape[1] - source.shape[1])
+        source = adjust_shape_to(source, destination)
 
-        y_before = int(diff_height // 2)
-        y_after = int(diff_height - y_before)
-
-        x_before = int(diff_width // 2)
-        x_after = int(diff_width - x_before)
-
-        channel_pad = [] if source.ndim == 2 else [[0, 0]]
-
-        source = np.pad(
-            source, [[y_before, y_after], [x_before, x_after]] + channel_pad,
-            mode='reflect'
-        )
-
-        # Reduce bigger dimensions
-        diff_height = max(0, source.shape[0] - destination.shape[0])
-        diff_width = max(0, source.shape[1] - destination.shape[1])
-
-        y_before = int(diff_height // 2)
-        y_after = int(diff_height - y_before) if y_before > 0 else -source.shape[0]
-
-        x_before = int(diff_width // 2)
-        x_after = int(diff_width - x_before) if x_before > 0 else -source.shape[1]
-
-        source = source[y_before:-y_after, x_before:-x_after, ...]
-
-    #warper = Affine()
-    warper = Homography()
-
-    distorter = ImageDistorter(destination)
+    distorter = BilinearSampler(destination)
     xx_o, yy_o = distorter.get_xy()
 
     source = tf.constant(source)
-    ones = tf.ones_like(source)
-    zeroes = tf.zeros_like(source)
-
-    plotter = InteractivePlotter()
 
     for it in range(iterations):
         with tf.GradientTape() as tape:
             xx, yy = warper(xx_o, yy_o)
             dst = distorter(xx, yy)
-            mask = tf.where((xx >= 0) & (xx < 1) &
-                            (yy >= 0) & (yy < 1), ones, zeroes)
+            mask = distorter.get_mask(xx, yy)
             loss = loss_fn(source, dst, mask)
 
         w = warper.variables
         grads = tape.jacobian(loss, w)
         optimizer.apply_gradients(zip(grads, w))
         print(f'[{it}] Loss: {loss.numpy()}')
-        plotter.update(dst * 0.5 + source * 0.5)
 
-    plotter.hold()
+        # Run post-iteration callbacks
+        [cbk(source, dst, mask) for cbk in callbacks]
 
     return dst
 
 
-def load_img(img_path: str) -> np.ndarray:
+def load_img(img_path: str,
+             blur_std: int = 1,
+             tgt_size: float = 256) -> np.ndarray:
     # Load image
     img = cv2.imread(img_path).astype(np.float32)
     # Convert to grayscale
@@ -264,75 +296,106 @@ def load_img(img_path: str) -> np.ndarray:
     lowest = np.min(img)
     highest = np.max(img)
     img = (img - lowest) / (highest - lowest)
+    # Resize to maximum dimension of 256
+    highest_dim = np.max(img.shape)
+    new_size = (np.array(img.shape[::-1]) * tgt_size / highest_dim).astype(
+        np.int32)
+    img = cv2.resize(img, tuple(new_size), interpolation=cv2.INTER_AREA)
     # Blur image
-    img = cv2.GaussianBlur(img, (5, 5), 1)
+    if blur_std > 0:
+        img = cv2.GaussianBlur(img, (33, 33), blur_std)
     # Add channel rank
     img = np.expand_dims(img, 2)
 
     return img
 
 
-@click.command()
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
 @click.argument('img_a_path', type=click.Path())
 @click.argument('img_b_path', type=click.Path())
-def main(img_a_path, img_b_path):
-    img_a = load_img(img_a_path)
-    img_b = load_img(img_b_path)
+@click.option('--save_gif', default=None, type=click.Path())
+def align(img_a_path, img_b_path, save_gif):
+    warper = Homography()
 
-    img_b = align_to(img_b, img_a)
-    """
-    t = lambda *x: np.array([
-        [1, 0, x[0]],
-        [0, 1, x[1]],
-        [0, 0, 1]
-    ], dtype=np.float32)
-    r = lambda x: np.array([
-        [np.cos(x*np.pi/180.0), -np.sin(x*np.pi/180.0), 0],
-        [np.sin(x*np.pi/180.0), np.cos(x*np.pi/180.0), 0],
-        [0, 0, 1]
-    ], dtype=np.float32)
+    blur_levels = [3, 2, 1, 0.5]
+    iterations = [600, 300, 100, 10]
+    tgt_sizes = [256, 256, 256, 256]
 
-    distorter = ImageDistorter(img_a[..., 0:1])
-    xx, yy = distorter.get_xy()
-    img = distorter(*homography(xx, yy, t(0.5, 0.5) @ r(45) @ t(-0.5, -0.5)))
-    plt.imshow(img)
-    plt.show()
-    #"""
+    if save_gif is None:
+        plotter = InteractivePlotter()
+    else:
+        plotter = GifPlotter(save_gif)
 
-    """
+    red_i: np.ndarray
+    blue_i: np.ndarray
+
+    def update_plot(target, transformed, transform_mask):
+        plotter.update(
+            transform_mask * (transformed * 0.7 * red_i +
+                              target * 0.3 * blue_i) +
+            (1-transform_mask) * target * blue_i
+        )
+
+    for blur_level, tgt_size, its in zip(blur_levels, tgt_sizes, iterations):
+        img_a = load_img(img_a_path, blur_level, tgt_size)
+        img_b = load_img(img_b_path, blur_level, tgt_size)
+
+        height = img_a.shape[0]
+        width = img_a.shape[1]
+
+        red_i = np.ones((height, width, 3)) * [[[1, 0.55, 0.55]]]
+        blue_i = np.ones((height, width, 3)) * [[[0.55, 0.55, 1]]]
+
+        align_to(img_b, img_a,
+                 warper, iterations=its, callbacks=[update_plot])
+
+    plotter.finalize()
+
+
+@cli.command()
+def debug():
     img = np.expand_dims(np.mgrid[0:4, 0:4][0], 2).astype(np.float32)
     img = (img - np.min(img)) / (np.max(img) - np.min(img))
-    w = tf.Variable(np.eye(3, 3), dtype=np.float32, trainable=True)
-    distorter = ImageDistorter(img)
+
+    warper = Homography()
+    variables = warper.variables[0]
+    distorter = BilinearSampler(img)
     xx, yy = distorter.get_xy()
 
-    def dist_func(xx, yy, w):
-        xx, yy = homography(xx, yy, w)
+    def warp_img(xx, yy, w=None):
+        if w is not None:
+            variables.assign(w)
+        xx, yy = warper(xx, yy)
         y = distorter(xx, yy)
-        y = tf.reduce_mean(y, keepdims=True)
         return y
 
+    # Compute derivatives with tensorflow
     with tf.GradientTape() as tape:
-        tape.watch(yy)
-        y = dist_func(xx, yy, w)
+        y = warp_img(xx, yy)
 
-    jacobian = tape.jacobian(y, w)
-    inspect_idx = [1, 0]
+    jacobian = tape.jacobian(y, variables)
+    inspect_idx = [2, 1]
     ic(np.squeeze(jacobian[..., inspect_idx[0], inspect_idx[1]]))
-    grad2 = np.zeros_like(jacobian)
+
+    # Compute derivatives numerically
+    grad = np.zeros_like(jacobian)
+    w = variables.numpy()
     eps = 1e-3
-    for i in range(grad2.shape[-2]):
-        for j in range(grad2.shape[-1]):
-            e = np.zeros(shape=(grad2.shape[-2], grad2.shape[-1]))
+    for i in range(grad.shape[-2]):
+        for j in range(grad.shape[-1]):
+            e = np.zeros(shape=(grad.shape[-2], grad.shape[-1]))
             e[i, j] = eps
-            grad2[..., i, j] = (dist_func(xx, yy, w+e) - dist_func(xx, yy, w)) / eps
+            grad[..., i, j] = (warp_img(xx, yy, w+e) - warp_img(xx, yy, w)) / eps
 
-    ic(np.squeeze(grad2[..., inspect_idx[0], inspect_idx[1]]))
-
-    #"""
+    ic(np.squeeze(grad[..., inspect_idx[0], inspect_idx[1]]))
 
 
 if __name__ == '__main__':
     icecream.install()
     icecream.ic.configureOutput(includeContext=True)
-    main()
+    cli()
