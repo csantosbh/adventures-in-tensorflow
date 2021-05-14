@@ -1,0 +1,6 @@
+tensorflow-gpu
+opencv-python
+icecream
+numpy
+click
+matplotlib
