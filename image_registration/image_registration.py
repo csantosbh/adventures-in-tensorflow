@@ -115,7 +115,7 @@ def align_to(source: np.ndarray,
             loss = loss_fn(source, dst, mask)
 
         w = warper.variables
-        grads = tape.jacobian(loss, w)
+        grads = tape.gradient(loss, w)
         optimizer.apply_gradients(zip(grads, w))
         print(f'[{it}] Loss: {loss.numpy()}')
 
