@@ -9,8 +9,10 @@ from common.plot import InteractivePlotter, GifPlotter
 from common.io import load_img
 from image_registration import image_registration
 
+CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
-@click.group()
+
+@click.group(context_settings=CONTEXT_SETTINGS)
 def cli():
     pass
 

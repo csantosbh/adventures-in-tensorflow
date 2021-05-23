@@ -10,7 +10,7 @@ TensorFlow is not just about Neural Networks. In this repository, I'll show some
 Running:
 
 ```bash
-python main.y align images/sample1_a.jpg images/sample1_b.jpg
+python main.py align images/sample1_a.jpg images/sample1_b.jpg
 ```
 
 > Tip: Use the `--help` flag to find out other cool options
