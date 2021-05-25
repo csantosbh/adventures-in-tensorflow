@@ -3,6 +3,7 @@ import tempfile
 import subprocess
 from pathlib import Path
 
+import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2
@@ -30,7 +31,9 @@ class InteractivePlotter(ISequencePlotter):
 
     def update(self, image, **kwargs):
         if self.axim is None:
-            self.axim = self.ax.imshow(image, cmap=kwargs.get('cmap', 'gray'))
+            self.axim = self.ax.imshow(
+                image, cmap=kwargs.get('cmap', 'gray'),
+                vmin=kwargs.get('vmin', None), vmax=kwargs.get('vmax', None))
         else:
             self.axim.set_data(image)
             self.fig.canvas.flush_events()
@@ -49,8 +52,16 @@ class GifPlotter(ISequencePlotter):
         self.counter = 0
 
     def update(self, image, **kwargs):
+        # Apply color map
+        cmap = cm.get_cmap(kwargs.get('cmap', 'gray'))
+        image = cmap(image)
+        # RGBA to BGR
+        image = image[:, :, 2::-1]
+        # Compose file name
         filename = Path(self.dst_dir.name) / f'frame_{self.counter:04d}.png'
+        # Discretize
         image = np.clip(image * 255, 0, 255).astype(np.int)
+
         cv2.imwrite(str(filename), image)
         self.counter += 1
 

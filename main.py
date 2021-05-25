@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import click
+import cv2
 import icecream
 import numpy as np
 import tensorflow as tf
@@ -7,7 +8,8 @@ import tensorflow as tf
 from common.transforms import Homography, Affine
 from common.plot import InteractivePlotter, GifPlotter
 from common.io import load_img
-from image_registration import image_registration
+from registration import image_registration as img_reg
+
 
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
@@ -18,10 +20,10 @@ def cli():
 
 
 @cli.command()
-@click.argument('img_a_path', type=click.Path())
-@click.argument('img_b_path', type=click.Path())
+@click.argument('img_a_path', type=click.Path(exists=True))
+@click.argument('img_b_path', type=click.Path(exists=True))
 @click.option('--save_gif', default=None, type=click.Path())
-def align(img_a_path, img_b_path, save_gif):
+def image_registration(img_a_path, img_b_path, save_gif):
     """
     Entry point for the image registration demo.
     Uses a coarse-to-fine approach for aligning the images. This consists of
@@ -56,6 +58,7 @@ def align(img_a_path, img_b_path, save_gif):
     # Iterate in coarse-to-fine representations of the images
     for blur_level, optimizer, its, size in zip(
             blur_levels, optimizers, iterations, image_sizes):
+        print(f'[Epoch] blur: {blur_level}, size: {size}')
         img_a = load_img(img_a_path, blur_level, size)
         img_b = load_img(img_b_path, blur_level, size)
 
@@ -65,14 +68,37 @@ def align(img_a_path, img_b_path, save_gif):
         red_i = np.ones((height, width, 3)) * [[[1, 0.55, 0.55]]]
         blue_i = np.ones((height, width, 3)) * [[[0.55, 0.55, 1]]]
 
-        image_registration.align_to(
+        img_reg.align_to(
             img_b, img_a, warper, iterations=its, callbacks=[update_plot],
             optimizer=optimizer)
 
     # We are done!
     plotter.finalize()
 
-    print(f'Computed transform parameters:\n{warper.variables[0]}')
+    print(f'Computed transform parameters:\n{warper.variables[0].numpy()}')
+
+
+@cli.command()
+@click.option('--left', 'left_path', type=click.Path(exists=True), required=True)
+@click.option('--right', 'right_path', type=click.Path(exists=True), required=True)
+@click.option('--groundtruth', 'gt_path', type=click.Path(exists=True), required=True)
+@click.option('--save-gif', default=None, type=click.Path())
+def rectified_stereo(left_path, right_path, gt_path, save_gif):
+    import optical_flow.stereo_matching as ofsm
+
+    physical_devices = tf.config.list_physical_devices('GPU')
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    tgt_size = 768
+    img_left = load_img(left_path, blur_std=0, cvt_grayscale=False,
+                        tgt_size=tgt_size)
+    img_right = load_img(right_path, blur_std=0, cvt_grayscale=False,
+                         tgt_size=tgt_size)
+    img_gt = load_img(gt_path, blur_std=0, cvt_grayscale=False, normalize=False,
+                      tgt_size=tgt_size, interpolation=cv2.INTER_NEAREST,
+                      replace_inf=-1, archive_index='depth')
+
+    ofsm.rectified_stereo_matching(
+        img_left, img_right, img_gt, save_gif=save_gif)
 
 
 @cli.command()
