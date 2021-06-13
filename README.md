@@ -6,9 +6,9 @@ This repository contains demo solutions for interesting problems in Computer Vis
 
 ## Rectified Stereo Matching
 <div align="center">
-<img src="images/stereo/motorcycle/im_left.png" width="256" height="auto"/>
-<img src="images/stereo/motorcycle/im_right.png" width="256" height="auto"/>
-<img src="images/demos/rectified_stereo.gif"/>
+<img src="data/stereo/motorcycle/im_left.png" width="256" height="auto"/>
+<img src="data/stereo/motorcycle/im_right.png" width="256" height="auto"/>
+<img src="data/demos/rectified_stereo.gif"/>
 </div>
 
 This demo is inspired by the technique from [Steinbrucker et al](#steinbrucker2009), where the objective function is optimized in alternating steps with respect to two independent variables `v` (the desired disparity map) and `u` (an auxiliary flow).
@@ -16,9 +16,9 @@ As the name suggests, the input images are expected to be [rectified](https://en
 
 ### Running
 ```bash
-python main.py rectified-stereo --left images/stereo/motorcycle/im_left.png \
-                                --right images/stereo/motorcycle/im_right.png \
-                                --groundtruth images/stereo/motorcycle/gt.npz
+python main.py rectified-stereo --left data/stereo/motorcycle/im_left.png \
+                                --right data/stereo/motorcycle/im_right.png \
+                                --groundtruth data/stereo/motorcycle/gt.npz
 ```
 
 ### References
@@ -26,15 +26,15 @@ python main.py rectified-stereo --left images/stereo/motorcycle/im_left.png \
 
 ## Image Registration
 <div align="center">
-<img src="images/pairs/sample1_a.jpg" width="256" height="auto"/>
-<img src="images/pairs/sample1_b.jpg" width="256" height="auto"/>
-<img src="images/demos/registration_demo.gif"/>
+<img src="data/pairs/sample1_a.jpg" width="256" height="auto"/>
+<img src="data/pairs/sample1_b.jpg" width="256" height="auto"/>
+<img src="data/demos/registration_demo.gif"/>
 </div>
 This demo implements a dense image tracker, which required defining an image sampler operation with custom gradient with respect to the input coordinates. It also implements some tricks to increase robustness to relatively large displacements between the input images (namely coarse-to-fine processing of images using different levels of blurring and scales).
 
 ### Running
 
 ```bash
-python main.py image-registration images/pairs/sample1_a.jpg \
-                                  images/pairs/sample1_b.jpg
+python main.py image-registration data/pairs/sample1_a.jpg \
+                                  data/pairs/sample1_b.jpg
 ```
