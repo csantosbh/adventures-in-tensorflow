@@ -25,7 +25,7 @@ def cli():
 @click.option('--save_gif', default=None, type=click.Path())
 def image_registration(img_a_path, img_b_path, save_gif):
     """
-    Entry point for the image registration demo.
+    Performs rigid registration between two images using homography transform
     Uses a coarse-to-fine approach for aligning the images. This consists of
     running the alignment algorithm multiple times; initially with the images in
     lower resolutions and blurred, with the amount of blur decreasing as the
@@ -84,10 +84,11 @@ def image_registration(img_a_path, img_b_path, save_gif):
 @click.option('--groundtruth', 'gt_path', type=click.Path(exists=True), required=True)
 @click.option('--save-gif', default=None, type=click.Path())
 def rectified_stereo(left_path, right_path, gt_path, save_gif):
+    """
+    Compute the disparity map for a rectified stereo pair
+    """
     import optical_flow.stereo_matching as ofsm
 
-    physical_devices = tf.config.list_physical_devices('GPU')
-    tf.config.experimental.set_memory_growth(physical_devices[0], True)
     tgt_size = 768
     img_left = load_img(left_path, blur_std=0, cvt_grayscale=False,
                         tgt_size=tgt_size)
