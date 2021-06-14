@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 
+from common import image as improc
+
 
 def load_img(img_path: str,
              blur_std: float = 1,
@@ -34,10 +36,7 @@ def load_img(img_path: str,
         img = (img - lowest) / (highest - lowest)
 
     # Resize to maximum specified dimension
-    highest_dim = np.max(img.shape)
-    new_size = (np.array(img.shape[1::-1]) * tgt_size / highest_dim).astype(
-        np.int32)
-    img = cv2.resize(img, tuple(new_size), interpolation=interpolation)
+    img = improc.resize_to_max(img, tgt_size, interpolation)
 
     # Blur image
     if blur_std > 0:

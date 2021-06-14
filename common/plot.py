@@ -24,22 +24,30 @@ class InteractivePlotter(ISequencePlotter):
     """
     Plotter that allows updating the image dynamically
     """
-    def __init__(self):
+    def __init__(self, name='InteractivePlotter'):
         plt.ion()
-        self.fig, self.ax = plt.subplots()
-        self.axim = None
+        self.name = name
 
-    def update(self, image, **kwargs):
-        if self.axim is None:
-            self.axim = self.ax.imshow(
-                image, cmap=kwargs.get('cmap', 'gray'),
-                vmin=kwargs.get('vmin', None), vmax=kwargs.get('vmax', None))
-        else:
-            self.axim.set_data(image)
-            self.fig.canvas.flush_events()
+    def update(self, image: np.ndarray, **kwargs):
+        if kwargs.get('norm', False):
+            upper = np.max(image)
+            lower = np.min(image)
+            image = (image - lower) / (upper - lower)
+
+        if image.ndim != 3 or image.shape[2] == 1:
+            # Apply color map (only for single-channel images)
+            cmap = cm.get_cmap(kwargs.get('cmap', 'gray'))
+            image = cmap(np.squeeze(image))
+
+        if image.ndim == 3:
+            # RGBA to BGR
+            image = image[:, :, 2::-1]
+
+        cv2.imshow(self.name, image)
+        cv2.waitKey(1)
 
     def finalize(self):
-        plt.show(block=True)
+        cv2.waitKey()
 
 
 class GifPlotter(ISequencePlotter):
@@ -52,13 +60,18 @@ class GifPlotter(ISequencePlotter):
         self.counter = 0
 
     def update(self, image, **kwargs):
-        # Apply color map
-        cmap = cm.get_cmap(kwargs.get('cmap', 'gray'))
-        image = cmap(image)
-        # RGBA to BGR
-        image = image[:, :, 2::-1]
+        if image.ndim != 3 or image.shape[2] == 1:
+            # Apply color map (only for single-channel images)
+            cmap = cm.get_cmap(kwargs.get('cmap', 'gray'))
+            image = cmap(np.squeeze(image))
+
+        if image.ndim == 3:
+            # RGBA to BGR
+            image = image[:, :, 2::-1]
+
         # Compose file name
         filename = Path(self.dst_dir.name) / f'frame_{self.counter:04d}.png'
+
         # Discretize
         image = np.clip(image * 255, 0, 255).astype(np.int)
 

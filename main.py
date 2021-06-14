@@ -79,9 +79,12 @@ def image_registration(img_a_path, img_b_path, save_gif):
 
 
 @cli.command()
-@click.option('--left', 'left_path', type=click.Path(exists=True), required=True)
-@click.option('--right', 'right_path', type=click.Path(exists=True), required=True)
-@click.option('--groundtruth', 'gt_path', type=click.Path(exists=True), required=True)
+@click.option('--left', 'left_path', type=click.Path(exists=True),
+              required=True)
+@click.option('--right', 'right_path', type=click.Path(exists=True),
+              required=True)
+@click.option('--groundtruth', 'gt_path', type=click.Path(exists=True),
+              required=True)
 @click.option('--save-gif', default=None, type=click.Path())
 def rectified_stereo(left_path, right_path, gt_path, save_gif):
     """
@@ -103,8 +106,23 @@ def rectified_stereo(left_path, right_path, gt_path, save_gif):
 
 
 @cli.command()
-def debug():
-    image_registration.debug()
+@click.argument('video_path', type=click.Path(exists=True), required=True)
+@click.option('--intensity', default=20)
+@click.option('--max-frames', default=None, type=int)
+@click.option('--show-progress', is_flag=True)
+@click.option('--save-gif', default=None, type=click.Path())
+def motion_amplification(video_path,
+                         intensity,
+                         max_frames,
+                         show_progress,
+                         save_gif):
+    """
+    Perform amplification of unnoticeable motion of input video
+    """
+    import video.motion_amplification as amp
+
+    amp.amplify_motion(
+        video_path, intensity, max_frames, show_progress, save_gif)
 
 
 if __name__ == '__main__':
