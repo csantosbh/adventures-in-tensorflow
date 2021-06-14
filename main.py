@@ -103,6 +103,18 @@ def rectified_stereo(left_path, right_path, gt_path, save_gif):
 
 
 @cli.command()
+@click.argument('video_path', type=click.Path(exists=True), required=True)
+@click.option('--save-gif', default=None, type=click.Path())
+def amplify_motion(video_path, save_gif):
+    """
+    Perform amplification of unnoticeable motion of input video
+    """
+    import video.motion_amplification as amp
+
+    amp.amplify_motion(video_path, save_gif)
+
+
+@cli.command()
 def debug():
     image_registration.debug()
 
