@@ -1,11 +1,12 @@
 import math
+from typing import List, Optional
 
 import tensorflow as tf
 import cv2
 import numpy as np
 from tqdm import tqdm
 
-from common import plot, image as improc, profiler as prof
+from common import plot, image as improc
 
 
 def get_steerable_filters(shape: tf.TensorShape,
@@ -78,10 +79,58 @@ def get_steerable_filters(shape: tf.TensorShape,
         l_mask[-1][np.newaxis, ...]
     ])
 
-    # Reorder filters so we dont have to call [i]fftshift on video
-    masks_final = np.fft.ifftshift(masks_final, axes=[1, 2])
-
     return masks_final
+
+
+def get_cropped_filters(filters: np.ndarray) -> List[np.ndarray]:
+    """
+    Filters has shape [n_filters, h, w]
+    Output is a list, each with shape [2, h_filt, w_filt] with the rank 0 being
+    (y_coordinate, x_coordinate).
+    """
+    n_filters, h, w = filters.shape
+
+    # Mask target pixels per row/col
+    target_pixels = np.abs(filters) > 0
+    tgt_y = np.max(target_pixels, axis=2)
+    tgt_x = np.max(target_pixels, axis=1)
+
+    # Make masks symmetric
+    tgt_y = tgt_y | tgt_y[:, ::-1]
+    tgt_x = tgt_x | tgt_x[:, ::-1]
+
+    # Get indices of target pixels
+    range_y = np.mgrid[0:n_filters, 0:h][1]
+    range_x = np.mgrid[0:n_filters, 0:w][1]
+
+    # Get the wrapping rectangles around each filter
+    min_range_y = np.min(range_y + (~tgt_y) * h, 1)
+    max_range_y = np.max(range_y * tgt_y, 1)
+    min_range_x = np.min(range_x + (~tgt_x) * w, 1)
+    max_range_x = np.max(range_x * tgt_x, 1)
+
+    # Small adjustments needed due to the placement of the zero frequency term
+    y_is_odd = (min_range_y % 2) == 1
+    x_is_odd = (min_range_x % 2) == 1
+    heights = max_range_y - min_range_y
+    widths = max_range_x - min_range_x
+    min_range_y -= (heights % 2) * y_is_odd
+    max_range_y += (heights % 2) * y_is_odd
+    min_range_x -= (widths % 2) * x_is_odd
+    max_range_x += (widths % 2) * x_is_odd
+
+    # Clip maximum range to valid values
+    max_range_y = np.minimum(max_range_y, h-1)
+    max_range_x = np.minimum(max_range_x, w-1)
+
+    # Compute final mask indices
+    indices = [
+        np.mgrid[min_range_y[k]:max_range_y[k]+1,
+                 min_range_x[k]:max_range_x[k]+1]
+        for k in range(n_filters)
+    ]
+
+    return indices
 
 
 def circular_mod(value: np.ndarray):
@@ -92,40 +141,53 @@ def circular_mod(value: np.ndarray):
 
 
 def get_level_filter(video_f: np.ndarray,
-                     filters: np.ndarray,
-                     level_idx: int) -> np.ndarray:
+                     level_filter: np.ndarray,
+                     filter_masks: np.ndarray) -> np.ndarray:
     """
     Get steerable pyramid for filter level.
 
     Output in the time domain containing phase information.
     Shape [n_frames, h, w, c]
     """
-    # TODO optimize by using central crops of filters
-    # TODO optimize by computing on the GPU (will require multiple passes due to large memory requirements)
+    axes = [1, 2]
+    masked = video_f[:, filter_masks[0], filter_masks[1]] * level_filter
+
     result = np.fft.ifft2(
-        video_f * filters[level_idx, ..., np.newaxis],
-        axes=[1, 2]
+        np.fft.ifftshift(masked, axes),
+        axes=axes
     ).astype(np.complex64)
 
     return result
 
 
 def rebuild_level(level_filtered: np.ndarray,
-                  filters: np.ndarray,
-                  level_idx: int) -> np.ndarray:
+                  level_filter: np.ndarray) -> np.ndarray:
     """
     Given the time domain filtered image level_filtered, bring it back to the
     frequency domain modulated by the filter of level level_idx
     """
-    return 2 * filters[level_idx, ..., np.newaxis] * \
-           np.fft.fft2(level_filtered, axes=[1, 2])
+    axes = [1, 2]
+    return 2 * level_filter * np.fft.fftshift(
+        np.fft.fft2(level_filtered, axes=axes), axes)
 
 
 def amplify_motion(video_path: str,
                    amplification: float,
                    max_frames: int,
                    show_progress: bool,
-                   save_gif: str):
+                   save_gif: Optional[str]) -> np.ndarray:
+    """
+    Perform motion amplification of input video
+
+    :param video_path: Path to desired video
+    :param amplification: Amplification factor
+    :param max_frames: Number of frames to process
+    :param show_progress: If set, a window will show the second frame being
+                          reconstructed
+    :param save_gif: Path to the destination gif file, or None to show the
+                     results in a window
+    :return: Processed video as a tensor of shape [n_frames, h, w, c]
+    """
     video_src = cv2.VideoCapture(video_path)
 
     # Load video
@@ -150,56 +212,59 @@ def amplify_motion(video_path: str,
     plotter = plot.InteractivePlotter()
 
     # Frequency domain filters. Shape [n_filters, h, w]
-    prof.tic()
     filters = get_steerable_filters(video_t.shape, 7, 4).real.astype(np.float32)
-    ic(prof.toc())
-    video_f = np.fft.fft2(video_t, axes=[1, 2]).astype(np.complex64)
-    ic(prof.toc())
+    filter_masks = get_cropped_filters(filters)
+    axes = [1, 2]
+    video_f = np.fft.fftshift(
+        np.fft.fft2(video_t, axes=axes).astype(np.complex64), axes
+    )
 
     amplified_f = np.zeros_like(video_f)
 
     for filter_idx in tqdm(range(0, filters.shape[0]-1),
                            desc='Processing filter level'):
-        prof.tic()
-        level_filtered = get_level_filter(video_f, filters, filter_idx)
-        ic(prof.toc())
+        curr_fmask = filter_masks[filter_idx]
+        level_filter = filters[
+            filter_idx, curr_fmask[0], curr_fmask[1], np.newaxis]
+        level_filtered = get_level_filter(video_f, level_filter, curr_fmask)
         # Compute spatial phase for current level. Shape [n_frames, h, w, c]
         level_phases = np.angle(level_filtered)
-        ic(prof.toc())
 
         # Compute phase differences. Shape [n_frames-1, h, w, c]
         phase_delta = circular_mod(level_phases[1:, ...] - level_phases[0, ...])
-        ic(prof.toc())
 
         # TODO Bandpass Filter delta phases
 
         # Amplify delta phases.
         phase_delta = phase_delta * amplification
-        ic(prof.toc())
         # Apply amplified delta to frames. Shape [n_frames, h, w, c]
         level_filtered[1:] = np.exp(1j * phase_delta) * level_filtered[1:]
-        ic(prof.toc())
         # Rebuild level. Shape [n_frames, h, w, c]
-        amplified_f += rebuild_level(level_filtered, filters, filter_idx)
-        ic(prof.toc())
+        amplified_f[:, curr_fmask[0], curr_fmask[1], :] += rebuild_level(
+            level_filtered, level_filter)
 
         if show_progress:
+            axes = [0, 1]
             plotter.update(
-                np.fft.ifft2(amplified_f[1], axes=[0, 1]).real,
-                cmap='viridis', norm=True
+                np.fft.ifft2(np.fft.ifftshift(amplified_f[1], axes),
+                             axes=axes).real,
+                norm=True
             )
 
     # Apply lowpass residual
-    prof.tic()
-    amplified_f += video_f * filters[-1, ..., np.newaxis] ** 2
-    ic(prof.toc())
+    curr_fmask = filter_masks[-1]
+    amplified_f[:, curr_fmask[0], curr_fmask[1], :] += \
+        video_f[:, curr_fmask[0], curr_fmask[1], :] * \
+        filters[-1, curr_fmask[0], curr_fmask[1], np.newaxis] ** 2
 
-    exit()
     # Display results
     if save_gif is not None:
         plotter = plot.GifPlotter(save_gif)
 
-    amplified_t = np.fft.ifft2(amplified_f, axes=[1, 2]).real
+    axes = [1, 2]
+    amplified_t = np.fft.ifft2(
+        np.fft.ifftshift(amplified_f, axes), axes=axes).real
+
     for frame_idx, frame_amp in enumerate(amplified_t):
         frame_orig = improc.resize_to_max(video_t[frame_idx], 384)
         frame_amp = improc.resize_to_max(frame_amp, 384)
@@ -210,3 +275,5 @@ def amplify_motion(video_path: str,
 
     # Perform motion amplification
     plotter.finalize()
+
+    return amplified_t
