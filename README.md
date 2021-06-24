@@ -4,6 +4,22 @@ This repository contains demo solutions for interesting problems in Computer Vis
 
 > Tip: Use the `--help` flag to find out other cool options are supported by the demos
 
+## Video Motion Amplification
+<div align="center">
+<img src="data/demos/motion_amplification.gif"/>
+</div>
+
+Here we implement a simplified variant of the motion magnification technique of [Wadhwa et al](#wadhwa2013). This algorithm decomposes the input video into a representation that allows them to infer the spatial phases of each pixel in a localized way. The local phases of each reference frame is removed from all subsequent frames, which leaves the temporal component of the phases. This component is then manipulated and added back to the original signals.
+
+### Running
+```bash
+python main.py motion-amplification data/videos/baby.avi --show-progress \
+                                    --max-frames 90 --intensity 10
+```
+
+### References
+- <a name="wadhwa2013"></a>Neal Wadhwa, Michael Rubinstein, Frédo Durand, and William T. Freeman. 2013. Phase-based video motion processing. ACM Trans. Graph. 32, 4, Article 80 (July 2013), 10 pages.
+
 ## Rectified Stereo Matching
 <div align="center">
 <img src="data/stereo/motorcycle/im_left.png" width="256" height="auto"/>
