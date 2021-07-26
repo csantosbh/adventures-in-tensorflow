@@ -4,12 +4,39 @@ This repository contains demo solutions for interesting problems in Computer Vis
 
 > Tip: Use the `--help` flag to find out other cool options are supported by the demos
 
+## Surface Reconstruction
+<div align="center">
+<img src="data/demos/fox_indicator_field.gif" width="256" height="auto"/>
+<img src="data/demos/fox_isocurve.png" width="256" height="auto"/>
+</div>
+<div align="center">
+<img src="data/demos/armadillo_indicator_field.gif" height="256" height="auto"/>
+<img src="data/demos/armadillo_isosurface.png" height="256" height="auto"/>
+</div>
+
+This demo follows the spirit of [Kazhdan et al](#kazhdan2007) and solves the surface reconstruction problem by computing a scalar field whose laplacian equals de divergent of the inwards normals obtained from the input point cloud. These normals are estimated from the two largest components from a local Principal Component Analysis around the neighborhood of each point.
+
+The main difference from the original work is that this demo solves the Poisson equation in a discretized volume rather than an octree. It is also not concerned with triangulating the resulting surface, leaving the visualization job to Mayavi by plotting the isosurface corresponding to the average value of the scalar field evaluated at the input point cloud.
+
+> **Note:** This demo is currently only implemented in *numpy*.
+
+### Running
+```bash
+python main.py import-point-cloud data/point_clouds/armadillo --output armadillo.npz
+python main.py surface-reconstruction-3d armadillo.npz --output volume_armadillo.npz
+```
+
+### References
+- <a name="kazhdan2007"></a> Michael Kazhdan, Matthew Bolitho, and Hugues Hoppe. 2006. Poisson surface reconstruction. In Proceedings of the fourth Eurographics symposium on Geometry processing (SGP '06). Eurographics Association, Goslar, DEU, 61–70.
+
 ## Video Motion Amplification
 <div align="center">
 <img src="data/demos/motion_amplification.gif"/>
 </div>
 
-Here we implement a simplified variant of the motion magnification technique of [Wadhwa et al](#wadhwa2013). This algorithm decomposes the input video into a representation that allows them to infer the spatial phases of each pixel in a localized way. The local phases of each reference frame is removed from all subsequent frames, which leaves the temporal component of the phases. This component is then manipulated and added back to the original signals.
+This is a simplified variant of the motion magnification technique of [Wadhwa et al](#wadhwa2013). This algorithm decomposes the input video into a representation that allows them to infer the spatial phases of each pixel in a localized way. The local phases of each reference frame is removed from all subsequent frames, which leaves the temporal component of the phases. This component is then manipulated and added back to the original signals.
+
+> **Note:** This demo is currently only implemented in *numpy*.
 
 ### Running
 ```bash

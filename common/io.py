@@ -53,3 +53,41 @@ def load_img(img_path: str,
     return img
 
 
+def load_svg(path='fox.svg', num_samples=100):
+    """
+    Load svg file, returning set of points and their inwards normals
+    """
+    from svgpathtools import svg2paths
+
+    paths, attributes = svg2paths(path)
+    main_curve = paths[0]
+    points = []
+    norms = []
+
+    for t in sorted(np.random.uniform(size=(num_samples,))):
+        pt = np.conj(main_curve.point(t))
+        pt_next = np.conj(main_curve.point((t + 1e-3) % 1.0))
+
+        grad = pt_next - pt
+        grad = grad / abs(grad)
+
+        points.append([pt.imag, pt.real])
+        norms.append([grad.real, -grad.imag])
+
+    points = np.array(points)
+    norma = lambda x: (x - (np.max(x, 0) + np.min(x, 0))/2) / \
+                      (np.max(x) - np.min(x)) * 4
+    points = norma(points)
+    norms = np.array(norms)
+
+    return points, norms
+
+
+def load_point_cloud(npz_cloud_name: str):
+    """
+    Load NPZ file containing point cloud positions and inwards normals.
+    Both have points in dim 0 and xyz coordinates in dim 1.
+    These points can be generated with the command `import_point_cloud`.
+    """
+    data = np.load(npz_cloud_name)
+    return data['positions'], data['normals']

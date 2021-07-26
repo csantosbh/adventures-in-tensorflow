@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+import os
+from pathlib import Path
+
 import click
 import cv2
 import icecream
@@ -6,7 +9,6 @@ import numpy as np
 import tensorflow as tf
 
 from common.transforms import Homography, Affine
-from common.plot import InteractivePlotter, GifPlotter
 from common.io import load_img
 from registration import image_registration as img_reg
 
@@ -31,6 +33,8 @@ def image_registration(img_a_path, img_b_path, save_gif):
     lower resolutions and blurred, with the amount of blur decreasing as the
     alignment .
     """
+    from common.plot import InteractivePlotter, GifPlotter
+
     warper = Homography()
 
     blur_levels = [3, 2, 1, 0.5]
@@ -123,6 +127,73 @@ def motion_amplification(video_path,
 
     amp.amplify_motion(
         video_path, intensity, max_frames, show_progress, save_gif)
+
+
+@cli.command()
+@click.argument('point_cloud_folder', type=click.Path(exists=True), required=True)
+@click.option('--output', 'output_name', type=click.Path(), default='point_cloud.npz')
+def import_point_cloud(point_cloud_folder, output_name):
+    """
+    Import Stanford point cloud into .npz oriented point clouds
+    """
+    import tarfile
+    import mayavi.mlab as mlab
+    from geometry import point_cloud
+    from tqdm import tqdm
+
+    # Only process file if output doesn't exist
+    if not os.path.isfile(output_name):
+        # Extract all files
+        print('Extracting compressed files')
+        for tar_name in tqdm(list(Path(point_cloud_folder).rglob('*.tar.gz'))):
+            tar = tarfile.open(tar_name, "r:gz")
+            tar.extractall(point_cloud_folder)
+            tar.close()
+
+        positions, normals = point_cloud.combine_point_clouds(point_cloud_folder)
+        np.savez_compressed(output_name, positions=positions, normals=normals)
+    else:
+        print(f'Found file {output_name}; skipping preprocessing...')
+        data = np.load(output_name)
+        positions = data['positions']
+        normals = data['normals']
+
+    mlab.points3d(positions[::15, 0],  positions[::15, 1],  positions[::15, 2], scale_factor=4e-4)
+    mlab.quiver3d(positions[::15, 0],  positions[::15, 1],  positions[::15, 2],
+                  normals[::15, 0],    normals[::15, 1],    normals[::15, 2], scale_factor=8e-4)
+    mlab.show()
+
+
+@cli.command()
+@click.argument("svg_path", type=click.Path(exists=True), required=True)
+@click.option('--save-gif', default=None, type=click.Path())
+def surface_reconstruction_2d(svg_path, save_gif):
+    """
+    Perform Poisson Surface Reconstruction of the provided 2D oriented point cloud
+    """
+    from common.io import load_svg
+    from geometry.poisson_reconstruction import reconstruct_2d
+
+    points, normals = load_svg(svg_path, 10000)
+    initial_resolution = 32
+    iterations = [500, 250, 100, 20, 20]
+    reconstruct_2d(points, normals, initial_resolution, iterations, save_gif)
+
+
+@cli.command()
+@click.argument("point_cloud_path", type=click.Path(exists=True), required=True)
+@click.option('--output', 'output_name', type=click.Path(), default='volume.npz')
+@click.option('--save-gif', default=None, type=click.Path())
+def surface_reconstruction_3d(point_cloud_path, output_name, save_gif):
+    """
+    Perform Poisson Surface Reconstruction of the provided 3D oriented point cloud
+    """
+    from common.io import load_point_cloud
+    from geometry.poisson_reconstruction import reconstruct_3d
+
+    points, normals = load_point_cloud(point_cloud_path)
+    iterations = [500, 250, 100, 20, 20]
+    reconstruct_3d(points, normals, output_name, 32, iterations, save_gif)
 
 
 if __name__ == '__main__':
