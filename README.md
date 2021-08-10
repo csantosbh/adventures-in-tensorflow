@@ -6,12 +6,10 @@ This repository contains demo solutions for interesting problems in Computer Vis
 
 ## Surface Reconstruction
 <div align="center">
-<img src="data/demos/fox_indicator_field.gif" width="256" height="auto"/>
-<img src="data/demos/fox_isocurve.png" width="256" height="auto"/>
-</div>
-<div align="center">
-<img src="data/demos/armadillo_indicator_field.gif" height="256" height="auto"/>
-<img src="data/demos/armadillo_isosurface.png" height="256" height="auto"/>
+<img src="data/demos/fox_indicator_field.gif" width="196" height="auto"/>
+<img src="data/demos/fox_isocurve.png" width="196" height="auto"/>
+<img src="data/demos/armadillo_indicator_field.gif" height="196" height="auto"/>
+<img src="data/demos/armadillo_isosurface.png" height="196" height="auto"/>
 </div>
 
 This demo follows the spirit of [Kazhdan et al](#kazhdan2007) and solves the surface reconstruction problem by computing a scalar field whose laplacian equals de divergent of the inwards normals obtained from the input point cloud. These normals are estimated from the two largest components from a local Principal Component Analysis around the neighborhood of each point.
