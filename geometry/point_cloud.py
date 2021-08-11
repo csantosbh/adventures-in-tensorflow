@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 
 from typing import Dict, Tuple, Union
-import os
 
 import numpy as np
-import icecream
 import quaternion
 from plyfile import PlyData
 from pathlib import Path
@@ -14,7 +12,8 @@ from sklearn.neighbors import NearestNeighbors
 
 def load_conf(fname: Union[Path, str]) -> Dict[str, np.ndarray]:
     """
-    Load stanford .conf file, returning a dict of file names -> 4x4 transform local2world matrices
+    Load stanford .conf file, returning a dict of file names -> 4x4 transform
+    local2world matrices
     """
 
     with open(fname, 'r') as fhandle:
@@ -55,8 +54,10 @@ def load_point_cloud(fname: Union[str, Path],
                      local2world: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
     Load Stanford .ply point cloud and returns (positions_w, scanner_dir_w), where:
-    * positions_w is the set of points in world coordinates; each point is on dim 0 and its xyz coords are on dim 1
-    * scanner_dir_w is a per-point direction to the scanner, which is later used to determine the normal direction
+    * positions_w is the set of points in world coordinates; each point is on
+      dim 0 and its xyz coords are on dim 1
+    * scanner_dir_w is a per-point direction to the scanner, which is later used
+      to determine the normal direction
     """
     plydata = PlyData.read(fname)
     positions = np.concatenate(
@@ -93,8 +94,8 @@ def compute_normals(positions: np.ndarray,
                     num_neighbors: int = 50) -> np.ndarray:
     """
     Estimates the inwards normal vectors of the point cloud.
-    This is computed by the cross product of the two highest components of the PCA components for points around a local
-    neighborhood of each point.
+    This is computed by the cross product of the two highest components of the
+    PCA components for points around a local neighborhood of each point.
     """
     # Get neighborhood around each point
     neighbor_search = NearestNeighbors(n_neighbors=num_neighbors, n_jobs=-1)
@@ -125,7 +126,8 @@ def compute_normals(positions: np.ndarray,
 def combine_point_clouds(folder: str,
                          verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Load all .ply point clouds from specified folder and combines them into a single representation.
+    Load all .ply point clouds from specified folder and combines them into a
+    single representation.
     This returns the point cloud positions and the normals.
     """
     if verbose:
@@ -157,27 +159,3 @@ def combine_point_clouds(folder: str,
     normals = compute_normals(positions, scanner_dirs)
 
     return positions, normals
-
-
-def main():
-    import mayavi.mlab as mlab
-
-    icecream.install()
-    cloud_name = 'armadillo.npz'
-
-    if not os.path.isfile(cloud_name):
-        positions, normals = combine_point_clouds('./')
-        np.savez_compressed(cloud_name, **{'positions': positions, 'normals': normals})
-    else:
-        data = np.load(cloud_name)
-        positions = data['positions']
-        normals = data['normals']
-
-    mlab.points3d(positions[::15, 0],  positions[::15, 1],  positions[::15, 2], scale_factor=4e-4)
-    mlab.quiver3d(positions[::15, 0],  positions[::15, 1],  positions[::15, 2],
-                    normals[::15, 0],    normals[::15, 1],    normals[::15, 2], scale_factor=8e-4)
-    mlab.show()
-
-
-if __name__ == '__main__':
-    main()

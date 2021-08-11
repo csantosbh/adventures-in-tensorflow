@@ -137,9 +137,9 @@ def import_point_cloud(point_cloud_folder, output_name):
     Import Stanford point cloud into .npz oriented point clouds
     """
     import tarfile
-    import mayavi.mlab as mlab
     from geometry import point_cloud
     from tqdm import tqdm
+    from common.plot import plot_points_norms_3d
 
     # Only process file if output doesn't exist
     if not os.path.isfile(output_name):
@@ -158,25 +158,29 @@ def import_point_cloud(point_cloud_folder, output_name):
         positions = data['positions']
         normals = data['normals']
 
-    mlab.points3d(positions[::15, 0],  positions[::15, 1],  positions[::15, 2], scale_factor=4e-4)
-    mlab.quiver3d(positions[::15, 0],  positions[::15, 1],  positions[::15, 2],
-                  normals[::15, 0],    normals[::15, 1],    normals[::15, 2], scale_factor=8e-4)
-    mlab.show()
+    plot_points_norms_3d(positions, normals)
 
 
 @cli.command()
 @click.argument("svg_path", type=click.Path(exists=True), required=True)
 @click.option('--save-gif', default=None, type=click.Path())
-def surface_reconstruction_2d(svg_path, save_gif):
+@click.option('--show-point-cloud', is_flag=True)
+@click.option('--point-count', default=10000)
+def surface_reconstruction_2d(svg_path, save_gif, show_point_cloud, point_count):
     """
     Perform Poisson Surface Reconstruction of the provided 2D oriented point cloud
     """
     from common.io import load_svg
+    from common.plot import plot_points_norms
     from geometry.poisson_reconstruction import reconstruct_2d
 
-    points, normals = load_svg(svg_path, 10000)
+    points, normals = load_svg(svg_path, point_count)
     initial_resolution = 32
     iterations = [500, 250, 100, 20, 20]
+
+    if show_point_cloud:
+        plot_points_norms(points, normals)
+
     reconstruct_2d(points, normals, initial_resolution, iterations, save_gif)
 
 
