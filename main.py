@@ -44,7 +44,7 @@ def image_registration(img_a_path, img_b_path, save_gif):
     image_sizes = [256, 256, 256, 512]
 
     if save_gif is None:
-        plotter = InteractivePlotter()
+        plotter = InteractivePlotter(tgt_resolution=512)
     else:
         plotter = GifPlotter(save_gif)
 
@@ -95,8 +95,11 @@ def rectified_stereo(left_path, right_path, gt_path, save_gif):
     Compute the disparity map for a rectified stereo pair
     """
     import optical_flow.stereo_matching as ofsm
+    from common.tf_utils import set_memory_growth
 
+    set_memory_growth(True)
     tgt_size = 768
+
     img_left = load_img(left_path, blur_std=0, cvt_grayscale=False,
                         tgt_size=tgt_size)
     img_right = load_img(right_path, blur_std=0, cvt_grayscale=False,
@@ -126,7 +129,7 @@ def motion_amplification(video_path,
     import video.motion_amplification as amp
 
     amp.amplify_motion(
-        video_path, intensity, max_frames, show_progress, save_gif)
+        video_path, intensity, max_frames, show_progress, 480, save_gif)
 
 
 @cli.command()

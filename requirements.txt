@@ -10,5 +10,4 @@ mayavi~=4.7.3
 plyfile~=0.7.4
 scikit-learn~=0.24.2
 numpy-quaternion
-tensorflow~=2.5.0
 svgpathtools

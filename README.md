@@ -49,7 +49,7 @@ This is a simplified variant of the motion magnification technique of [Wadhwa et
 
 ### Running
 ```bash
-python main.py motion-amplification data/videos/baby.avi --show-progress \
+python main.py motion-amplification data/videos/baby.mp4 --show-progress \
                                     --max-frames 90 --intensity 10
 ```
 

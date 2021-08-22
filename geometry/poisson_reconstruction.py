@@ -39,10 +39,10 @@ def generate_sphere(count: int = 50) -> Tuple[np.ndarray, np.ndarray]:
     return pts, norms
 
 
-def solve_poisson(tgt_laplacian: np.ndarray,
-                  initial_solution: np.ndarray = None,
-                  num_its: int = 500,
-                  plotter: ISequencePlotter = None) -> np.ndarray:
+def solve_poisson_2d(tgt_laplacian: np.ndarray,
+                     initial_solution: np.ndarray = None,
+                     num_its: int = 500,
+                     plotter: ISequencePlotter = None) -> np.ndarray:
     """
     Iterative poisson solver for 2d grids.
     Returns a grid with the same dimensions as tgt_laplacian such that
@@ -142,7 +142,7 @@ def poisson_reconstruct_level_2d(points: np.ndarray,
     d_grid[1:-1, 1:-1] = n_grid[  2:, 1:-1, 0] - n_grid[0:-2, 1:-1, 0] + \
                          n_grid[1:-1,   2:, 1] - n_grid[1:-1, 0:-2, 1]
 
-    scalar_field = solve_poisson(
+    scalar_field = solve_poisson_2d(
         d_grid, initial_solution=initial_solution, num_its=num_its, plotter=plotter)
     edge_levels = scalar_field[yx[:, 0], yx[:, 1]]
 
@@ -219,7 +219,7 @@ def reconstruct_2d(points: np.ndarray,
     if save_gif:
         plotter = GifPlotter(save_gif, tgt_resolution=(256, 256))
     else:
-        plotter = InteractivePlotter(tgt_resolution=(512, 512))
+        plotter = InteractivePlotter(tgt_resolution=512)
 
     points = (points - np.mean(points, 0)) / (np.max(points) - np.min(points)) * 2
 
@@ -254,7 +254,7 @@ def reconstruct_3d(points: np.ndarray,
     if save_gif:
         plotter = GifPlotter(save_gif, tgt_resolution=(256, 256))
     else:
-        plotter = InteractivePlotter(tgt_resolution=(512, 512))
+        plotter = InteractivePlotter(tgt_resolution=512)
 
     if not os.path.isfile(output_name):
         points = (points - np.mean(points, 0)) / (np.max(points) - np.min(points)) * 2

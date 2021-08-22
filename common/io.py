@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from typing import Tuple
 
 from common import image as improc
 
@@ -53,7 +54,7 @@ def load_img(img_path: str,
     return img
 
 
-def load_svg(path='fox.svg', num_samples=100):
+def load_svg(path='fox.svg', num_samples=100) -> Tuple[np.ndarray, np.ndarray]:
     """
     Load svg file, returning set of points and their inwards normals
     """
@@ -83,7 +84,7 @@ def load_svg(path='fox.svg', num_samples=100):
     return points, norms
 
 
-def load_point_cloud(npz_cloud_name: str):
+def load_point_cloud(npz_cloud_name: str) -> Tuple[np.ndarray, np.ndarray]:
     """
     Load NPZ file containing point cloud positions and inwards normals.
     Both have points in dim 0 and xyz coordinates in dim 1.

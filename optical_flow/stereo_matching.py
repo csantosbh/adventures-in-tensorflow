@@ -256,7 +256,7 @@ def rectified_stereo_matching(img_left: np.ndarray,
         return u_local
 
     if save_gif is None:
-        plotter = InteractivePlotter()
+        plotter = InteractivePlotter(tgt_resolution=512)
     else:
         plotter = GifPlotter(save_gif)
 

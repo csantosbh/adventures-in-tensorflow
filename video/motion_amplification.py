@@ -175,6 +175,7 @@ def amplify_motion(video_path: str,
                    amplification: float,
                    max_frames: int,
                    show_progress: bool,
+                   work_resolution: int,
                    save_gif: Optional[str]) -> np.ndarray:
     """
     Perform motion amplification of input video
@@ -195,6 +196,7 @@ def amplify_motion(video_path: str,
     has_next_frame, frame = video_src.read()
     curr_frame = 0
     while has_next_frame:
+        frame = improc.resize_to_max(frame, work_resolution)
         # Convert frame from BGR uint8 to RGB normalized float
         frame = improc.im2float(frame[:, :, 2::-1])
         video_t.append(frame)

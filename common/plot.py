@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import cv2
 
+from common import image as improc
+
 
 class ISequencePlotter(object):
     """
@@ -25,12 +27,18 @@ class InteractivePlotter(ISequencePlotter):
     """
     Plotter that allows updating the image dynamically
     """
-    def __init__(self, name='InteractivePlotter', tgt_resolution=None):
+    def __init__(self,
+                 name: str = 'InteractivePlotter',
+                 tgt_resolution: int = None):
         plt.ion()
         self.name = name
         self.tgt_resolution = tgt_resolution
 
     def update(self, image: np.ndarray, **kwargs):
+        if hasattr(image, 'numpy'):
+            # Convert eager tensor to numpy array
+            image = image.numpy()
+
         if kwargs.get('origin', None) == 'lower':
             image = image[::-1, ...]
 
@@ -40,7 +48,7 @@ class InteractivePlotter(ISequencePlotter):
             image = (image - lower) / (upper - lower)
 
         if self.tgt_resolution:
-            image = cv2.resize(image, self.tgt_resolution)
+            image = improc.resize_to_max(image, self.tgt_resolution)
 
         if image.ndim != 3 or image.shape[2] == 1:
             # Apply color map (only for single-channel images)
