@@ -203,7 +203,22 @@ def surface_reconstruction_3d(point_cloud_path, output_name, save_gif):
     reconstruct_3d(points, normals, output_name, 32, iterations, save_gif)
 
 
+@cli.command()
+def structure_from_motion():
+    from geometry.structure_from_motion import sfm
+    sfm()
+
+
+def configure_numpy():
+    def info(x):
+        with np.printoptions(threshold=10, edgeitems=10, linewidth=100000, suppress=True):
+            return f'[{x.shape}, {x.dtype}]\n{np.array_repr(x)}'
+
+    np.set_string_function(info)
+
+
 if __name__ == '__main__':
     icecream.install()
     icecream.ic.configureOutput(includeContext=True)
+    configure_numpy()
     cli()
