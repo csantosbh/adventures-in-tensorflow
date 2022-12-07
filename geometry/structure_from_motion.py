@@ -152,7 +152,7 @@ def get_essential(pts_a, pts_b):
     simple manipulation of the equation above, we can replace a' and b'
     by a and b, respectively:
        a'.T * Na.T * Na.T^-1 * E Nb^-1 * Nb * b' = 0,
-       a * Na.T^-1 * E * Na^-1 * b = 0,
+       a * Na.T^-1 * E * Nb^-1 * b = 0,
        a * P * b = 0.
     So the P found by this procedure should be convertible to the
     matrix E by:
@@ -161,6 +161,15 @@ def get_essential(pts_a, pts_b):
     :param pts_a:
     :param pts_b:
     :return:
+    """
+
+    """
+    rnda = np.random.normal(scale=0.002, size=(pts_a.shape[0], 2))
+    rndb = np.random.normal(scale=0.002, size=(pts_a.shape[0], 2))
+    ic(np.mean(np.abs(rnda)), np.mean(np.abs(rndb)))
+    ic(np.max(pts_a[:, :2], 0) - np.min(pts_a[:, :2], 0))
+    pts_a[:, :2] += rnda
+    pts_b[:, :2] += rndb
     """
     assert(pts_a.shape[0] == pts_b.shape[0])  # n_points
     assert(pts_a.shape[1] == pts_b.shape[1] == 3)
@@ -179,26 +188,58 @@ def get_essential(pts_a, pts_b):
 
     u, s, vh = scipy.linalg.svd(a_times_b)
     E_raw = vh[-1, :].reshape((3, 3))
+    E_handedness = np.dot(np.cross(E_raw[:, 0], E_raw[:, 1]), E_raw[:, 2])
+
+    dbg = lambda m: np.dot(np.cross(m[:, 0], m[:, 1]), m[:, 2])
+    if E_handedness < 0 and False:
+        """
+        By expanding ((C0 cross C1) dot C2) for [t]x=[C0,C1,C2] one will find that this
+        value (which is related to the handedness of the operation) should be 0.
+        
+        Due to unknown reasons yet (possibly inaccuracies in the location of keypoints),
+        E can have (...)
+        """
+        # TODO where should this be done?
+        E_raw = E_raw @ np.array([
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, -1],
+        ])
+        ic(dbg(E_raw))
+        pass
+
 
     # Make E have rank 2
     ue, se, vhe = scipy.linalg.svd(E_raw)
     E = ue @ np.diag([se[0], se[1], 0]) @ vhe
 
+    # How does E compare to real_E in terms of ||A@E||?
+    ic(np.linalg.norm(a_times_b @ E_raw.reshape((9,1))))
+    ic(np.linalg.norm(a_times_b @ E.reshape((9,1))))
+    real_E_n = np.linalg.inv(normalization_a.T) @ real_E @ np.linalg.inv(normalization_b)
+    ic(np.linalg.norm(a_times_b @ real_E_n.reshape((9,1))))
+    exit()
+
+    # Remove normalization transform
+    E = normalization_a.T @ E @ normalization_b
+
     # Show that a.T @ E @ b = 0 (ideally; may not occur in real life)
-    ic('a.T @ estimated E @ b', mean_std(np.abs([
-        pt_a[np.newaxis, :] @ E @ pt_b[:, np.newaxis]
-        for pt_a, pt_b in zip(pts_a, pts_b)
-    ])))
+    #ic('a.T @ estimated E @ b', mean_std(np.abs([
+    #    pt_a[np.newaxis, :] @ E @ pt_b[:, np.newaxis]
+    #    for pt_a, pt_b in zip(pts_a, pts_b)
+    #])))
 
     # Show that a.T @ real_E @ b = 0
-    ic('a.T @ real E @ b', mean_std(np.abs([
-        pt_a[np.newaxis, :] @ real_E @ pt_b[:, np.newaxis]
-        for pt_a, pt_b in zip(pts_a, pts_b)
-    ])))
+    #ic('a.T @ real E @ b', mean_std(np.abs([
+    #    pt_a[np.newaxis, :] @ real_E @ pt_b[:, np.newaxis]
+    #    for pt_a, pt_b in zip(pts_a, pts_b)
+    #])))
 
+    # Plot point clouds and epipolar lines
+    """
     # Scatter plot point clouds
-    pts_a = pts_a_n
-    pts_b = pts_b_n
+    #pts_a=pts_a_n
+    #pts_b=pts_b_n
     fig, ax = plt.subplots(1, 2)
     ax[0].scatter(pts_a[:, 0], pts_a[:, 1], s=0.1)
     ax[1].scatter(pts_b[:, 0], pts_b[:, 1], s=0.1)
@@ -223,26 +264,93 @@ def get_essential(pts_a, pts_b):
     # Plot intersection of some lines
     ax[1].scatter(*homognorm(np.cross(line_eq(points_rnd_idx[0]), line_eq(points_rnd_idx[1])))[:2], s=50.0, marker='o')
     # The intersection of all lines should be the projection of the origin of the other camera
-    origin_a_in_b = normalization_transforms_all_noround[1] @ homognorm(-real_dr.T @ real_dt)
+    origin_a_in_b = homognorm(-real_dr.T @ real_dt)
     ax[1].scatter(*origin_a_in_b.flatten()[:2], s=50, marker='*', color=(0,0,0))
 
     # Adjust plot style
+    rng = np.max(np.abs(np.concatenate([pts_a[:, :2], pts_b[:, :2]], axis=0)))
     for axi in ax:
         axi.set_aspect(1)
-        axi.set_xlim([-20, 20])
-        axi.set_ylim([-20, 20])
+        axi.set_xlim([-3 * rng, 3 * rng])
+        axi.set_ylim([-3 * rng, 3 * rng])
         axi.invert_yaxis()
 
     plt.show()
-    exit()
+    #"""
 
     return E
 
 
-def retrieve_rt(E, gt_r, gt_t):
+def refine_essential():
+    """
+    pts_a @ E @ pts_b = 0.
+    We can rewrite E as a 9 row vector. With A such that
+    A_[i, :] = (pts_a_i @ pts_b_i.T).flat
+             = [x_a*x_b x_a*y_b x_a y_a*x_b y_a*y_b y_a x_b y_b 1],
+    we equivalently have A @ E' = 0.
+
+    Since E = [t] x @ R, if we have a reliable estimate of t, then we want
+    to find R such that A @ ([t]x @ R)' = 0. Here,
+    ([t]x @ R)' = [[t]x00*R00 + [t]x01*R10 + [t]x02*R20
+                   [t]x00*R01 + [t]x01*R11 + [t]x02*R21
+                   [t]x00*R02 + [t]x01*R12 + [t]x02*R22
+
+                   [t]x10*R00 + [t]x11*R10 + [t]x12*R20
+                   [t]x10*R01 + [t]x11*R11 + [t]x12*R21
+                   [t]x10*R02 + [t]x11*R12 + [t]x12*R22
+
+                   [t]x20*R00 + [t]x21*R10 + [t]x22*R20
+                   [t]x20*R01 + [t]x21*R11 + [t]x22*R21
+                   [t]x20*R02 + [t]x21*R12 + [t]x22*R22]
+    If we write ([t]x @ R)' = T @ R', with R'=R.flat, then
+    R'= [r00    r01    r02    r10    r11    r12    r20    r21    r22]
+    T = [[t]x00 0      0      [t]x01 0      0      [t]x02 0      0
+         0      [t]x00 0      0      [t]x01 0      0      [t]x02 0
+         0      0      [t]x00 0      0      [t]x01 0      0      [t]x02
+         [t]x10 0      0      [t]x11 0      0      [t]x12 0      0
+         0      [t]x10 0      0      [t]x11 0      0      [t]x12 0
+         0      0      [t]x10 0      0      [t]x11 0      0      [t]x12
+         [t]x20 0      0      [t]x21 0      0      [t]x22 0      0
+         0      [t]x20 0      0      [t]x21 0      0      [t]x22 0
+         0      0      [t]x20 0      0      [t]x21 0      0      [t]x22]
+
+    Hartley proposes that we find the f = T @ R' that minimizes ||A@f|| subject
+    to f=T@R' to a known T and free R', instead of minimizing ||A@T@R'||. The idea
+    is to avoid solutions that lie in the null space of T.
+
+    :return:
+    """
+    pass
+
+def get_rt(E, pts_a, pts_b):
+    """
+    Retrieving rotation r:
+    We know E = [tx]@r. We also know that the cross product matrix [tx]
+    represents Rt.T @ R90 @ S @ Rt, where the rotation Rt aligns the axis t with Z,
+    S scales by |t| on X,Y, and by 0 on Z (so it squeezes the space), and R90 is a
+    90deg rotation around Z.
+
+    By plugging everything together, E=Rt.T @ R90 @ S @ Rt @ r.
+    With an SVD decomposition, we find E=U@S@V. However, that doesn't mean SVD will find
+    U=Rt.T @ R90 and V=Rt @ r, since the two vectors that create the base for the 2D squeezed
+    space created by E have the same intensity. In other words, the orthonormal vectors
+    perpendicular to t can have any 2D rotation around t (which is a rotation K around Z
+    after Rt is applied). This means:
+      E = U @ S @ V
+        = Rt.T @ R90 @ S @ K.T @ K @ Rt @ r
+        = Rt.T @ R90 @ K.T @ S @ K @ Rt @ r
+    Note that S @ K.T = K.T @ S due to K being a 2d rotation around Z and S being a uniform
+    scale in XY.
+
+    Thus, U=Rt.T @ R90 @ K.T=Rt.T @ K.T @ R90 (because 2d rotations are commutative) and
+    V=K @ Rt @ r. We can finally retrieve r:
+      r = Rt.T @ K.T @ V.
+    Since Rt.T = U @ K @ R90.T,
+      r = U @ K @ R90.T @ K.T @ V (by replacing Rt.T in the r identity above),
+        = U @ R90.T @ K @ K.T @ V (R90.T and K are commutative as they rotate around Z),
+        = U @ R90.T @ V
+    """
     u, s, vh = scipy.linalg.svd(E)
-    ic(gt_r, normalize(gt_t))
-    ic(u, s, vh)
     """
     s[0]=s[1].
     Proof:
@@ -253,34 +361,34 @@ def retrieve_rt(E, gt_r, gt_t):
     Therefore, the singular values associated with the vectors that create the plane perpendicular
     to t must be the same, s[0]=s[1].
     """
-    t_direction = -u[:, 2:3]
-
-    cross_prods = [
-        skew_symmetric_of(E[:, i] / s[0])
-        for i in range(3)
-    ]
-    #ic(gt_r[:, 0:1] - t_direction * (np.dot(gt_r[:, 0:1].T, t_direction)))
-    #ic(cross_prods[0] @ t_direction)
-    #ic(t_direction.T @ cross_prods[0].T @ cross_prods[0] @ t_direction + gt_r[:, 0:1].T @ t_direction @ t_direction.T @ t_direction @ t_direction.T @ gt_r[:, 0:1])
-    M = t_direction @ t_direction.T @ t_direction @ t_direction.T
-
-    i_of = lambda i: np.squeeze(1 - t_direction.T @ cross_prods[i].T @ cross_prods[i] @ t_direction)
-    o_of = lambda i, j: np.squeeze(- t_direction.T @ cross_prods[i].T @ cross_prods[j] @ t_direction)
-
-    ic(gt_r, gt_r @ normalize(gt_t), scipy.linalg.svd(M))
-    ic(np.sqrt(1 - np.linalg.norm(E / s[0], axis=0)**2))
-    io_mat = np.array([
-        [i_of(0), o_of(0, 1), o_of(0, 2)],
-        [o_of(1, 0), i_of(1), o_of(1, 2)],
-        [o_of(2, 0), o_of(2, 1), i_of(2)],
+    Z=np.array([0,0,1])
+    Rt = R.from_rotvec(np.arccos(np.dot(normalize(real_dt).flatten(), Z))*normalize(np.cross(real_dt.flatten(), Z))).as_matrix()
+    K = real_dr @ real_dr.T @ Rt.T
+    righthandedness = lambda m: np.dot(np.cross(m[:, 0], m[:, 1]), m[:, 2])
+    ic(righthandedness(E))
+    ic(righthandedness(Rt))
+    ic(righthandedness(K))
+    ic(righthandedness(u), righthandedness(vh))
+    r90 = np.array([
+        [0, -1, 0],
+        [1,  0, 0],
+        [0,  0, 1],
     ])
-    #ic(io_mat)
+    # TODO
+    translation = -u[:, 2:3]
+    rotation = u @ r90.T @ vh
+    # TODO understand why found matrix can be left handed
+    #rotation[:, 2] = np.cross(rotation[:, 0], rotation[:, 1])
 
-    rhs = np.concatenate([cross_prod @ t_direction for cross_prod in cross_prods], axis=1)
-    lhs = np.eye(3) - t_direction @ t_direction.T
-    ic(lhs @ gt_r, rhs)
-    """
-    """
+    # How do our results compare to the groundtruth?
+    ic(normalize(real_dt), translation)
+    ic(real_dr, rotation)
+    ic(real_dr.T @ rotation)
+    ic('Axis distances in degrees',
+       np.rad2deg(np.arccos(np.diag(real_dr.T @ rotation))))
+    exit()
+
+    return rotation, translation
 
 
 def sfm():
@@ -305,6 +413,7 @@ def sfm():
         [0, -0.5*window_width, 0.5*window_width],
         [0, 0, 1]
     ])
+    # TODO camera mat seems to be not affecting image
     camera = np.array([
         [-5, 0, 0],
         [0, -5, 0],
@@ -368,39 +477,6 @@ def sfm():
     #plot3d((skew_symmetric_of(dt)@points.T).T, indices)
     # Whats the SVD of skew symmetric only?
     #u,s,v = scipy.linalg.svd(skew_symmetric_of(dt))
-    """
-    Retrieving rotation r:
-    We know E = [tx]@r. We also know that the cross product matrix [tx]
-    represents Rt.T @ R90 @ S @ Rt, where the rotation Rt aligns the axis t with Z,
-    S scales by |t| on X,Y, and by 0 on Z (so it squeezes the space), and R90 is a
-    90deg rotation around Z.
-    
-    By plugging everything together, E=Rt.T @ R90 @ S @ Rt @ r.
-    With an SVD decomposition, we find E=U@S@V. However, that doesn't mean SVD will find
-    U=Rt.T @ R90 and V=Rt @ r, since the two vectors that create the base for the 2D squeezed
-    space created by E have the same intensity. In other words, the orthonormal vectors
-    perpendicular to t can have any 2D rotation around t (which is a rotation K around Z
-    when Rt is applied). This means:
-      E = U @ S @ V
-        = Rt.T @ R90 @ S @ K.T @ K @ Rt @ r
-        = Rt.T @ R90 @ K.T @ S @ K @ Rt @ r
-    Note that S @ K.T = K.T @ S due to K being a 2d rotation around Z and S being a
-    scaling (diagonal) matrix.
-    
-    Thus, U=Rt.T @ R90 @ K.T=Rt.T @ K.T @ R90 (because 2d rotations are commutative) and
-    V=K @ Rt @ r. We can finally retrieve r:
-      r = U @ R90.T @ V
-        = Rt.T @ K.T @ R90 @ R90.T @ K @ Rt @ r
-        = Rt.T @ K.T @ K @ Rt @ r
-        = Rt.T @ Rt @ r
-        = r
-    """
-    #u2,s2,v2 = scipy.linalg.svd(real_E)
-    #ic(u,s,v, u2,s2,v2)
-    #ic(u, u2)
-    #ic(v@dr, v2)
-    #ic(u.T@u2 @ v@dr@v2.T)
-    #ic(u@np.diag(s)@v@dr, real_E)
 
     # What are the statistical properties of the error?
     #err = unprojected_points_all[0] - unprojected_points_all_noround[0]
@@ -409,49 +485,9 @@ def sfm():
     #plt.hist(err[:, 1], bins=40)
     #plt.show()
 
-    """
-    fig, ax = plt.subplots(3, 3)
-    gt = np.array([
-        (a_[:, np.newaxis] @ b_[np.newaxis, :]).flatten()
-        for a_, b_ in zip(unprojected_points_all_noround[0],
-                          unprojected_points_all_noround[1])
-    ])
-    eet = np.array([
-        (a_[:, np.newaxis] @ b_[np.newaxis, :]).flatten()
-        for a_, b_ in zip(unprojected_points_all[0],
-                          unprojected_points_all[1])
-    ]) - gt
-    for i in range(3):
-        for j in range(3):
-            ax[i, j].hist(eet[:, i*3+j], bins=40)
-    plt.show()
-    """
-
-    # What does (b+e)*(a+e).T - b*a.T look like?
-    #err1=np.random.uniform(-1, 1, (unprojected_points_all[0].shape[0], 3))
-    #err2=np.random.uniform(-1, 1, (unprojected_points_all[0].shape[0], 3))
-    #a=np.random.uniform(0, 256, (unprojected_points_all[0].shape[0], 3))
-    #b=np.random.uniform(0, 256, (unprojected_points_all[0].shape[0], 3))
-    #gt = np.array([
-    #    (a_[:, np.newaxis] @ b_[np.newaxis, :]).flatten()
-    #    for a_, b_, e1, e2 in zip(a, b, err1, err2)
-    #])
-    #eet = np.array([
-    #    ((a_[:, np.newaxis] + e1[:, np.newaxis]) @ (b_[np.newaxis, :] + e2[np.newaxis, :]) -
-    #      a_[:, np.newaxis] @ b_[np.newaxis, :]).flatten()
-    #    for a_, b_, e1, e2 in zip(a, b, err1, err2)
-    #])
-    #ic(gt, eet, np.mean(eet / gt, 0))
-    #fig, ax = plt.subplots(3, 3)
-    #for i in range(3):
-    #    for j in range(3):
-    #        ax[i, j].hist(eet[:, i*3+j], bins=40)
-    #plt.show()
-
     #E = get_essential(unprojected_points_all_noround[0], unprojected_points_all_noround[1])
     E = get_essential(unprojected_points_all[0], unprojected_points_all[1])
-    #ic(E, real_E / real_E[0,0] * E[0,0])
-    retrieve_rt(E, dr, dt)
+    est_dr, est_dt = get_rt(E, unprojected_points_all[0], unprojected_points_all[1])
 
     #plot3d(transformed_points_all[0], indices)
     #plot2d(projected_points_all[0], window_width, window_width)
